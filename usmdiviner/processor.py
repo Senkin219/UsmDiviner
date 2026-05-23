@@ -33,6 +33,13 @@ from .usm import parse_usm_chunks
 
 logger = logging.getLogger(__name__)
 
+AUDIO_LANGUAGE_METADATA = {
+    0: ("chi", "中文"),
+    1: ("eng", "English"),
+    2: ("jpn", "日本語"),
+    3: ("kor", "한국어"),
+}
+
 
 def process_one(usm_path_str: str, opt: ProcessOptions) -> dict:
     usm_path = Path(usm_path_str)
@@ -369,12 +376,15 @@ def _maybe_mux(
         }, False
 
     mux_audio_inputs: list[Path] = []
+    mux_audio_metadata: list[tuple[str, str] | None] = []
     for ch, audio_path in sorted(audio_paths.items()):
         dec = decoded.get(ch) or {}
         if dec.get("ok") and dec.get("wav"):
             mux_audio_inputs.append(Path(dec["wav"]))
+            mux_audio_metadata.append(AUDIO_LANGUAGE_METADATA.get(ch))
         elif audio_decisions[ch].format == "adx":
             mux_audio_inputs.append(audio_path)
+            mux_audio_metadata.append(AUDIO_LANGUAGE_METADATA.get(ch))
 
     ffmpeg = find_ffmpeg(opt.ffmpeg)
     if not ffmpeg:
@@ -382,7 +392,13 @@ def _maybe_mux(
 
     mkv_path = out_dir / f"{base}.mkv"
     try:
-        ok, log = mux_to_mkv(ffmpeg, video_path, mux_audio_inputs, mkv_path)
+        ok, log = mux_to_mkv(
+            ffmpeg,
+            video_path,
+            mux_audio_inputs,
+            mkv_path,
+            audio_metadata=mux_audio_metadata,
+        )
     except ExternalToolError as exc:
         logger.warning("mkv mux failed for %s: %s", base, exc)
         message = "ffmpeg mux failed; extracted streams were kept"

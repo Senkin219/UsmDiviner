@@ -105,17 +105,24 @@ def mux_to_mkv(
     audio_inputs: list[Path],
     output_mkv: Path,
     timeout: int = 300,
+    *,
+    audio_metadata: list[tuple[str, str] | None] | None = None,
 ) -> tuple[bool, str]:
     if not video_path.exists() or video_path.stat().st_size == 0:
         return False, "video stream does not exist"
 
-    existing_audio = [p for p in audio_inputs if p.exists() and p.stat().st_size > 0]
+    existing_audio: list[tuple[Path, tuple[str, str] | None]] = []
+    for i, path in enumerate(audio_inputs):
+        if not path.exists() or path.stat().st_size == 0:
+            continue
+        metadata = audio_metadata[i] if audio_metadata and i < len(audio_metadata) else None
+        existing_audio.append((path, metadata))
 
     output_mkv.parent.mkdir(parents=True, exist_ok=True)
     _safe_unlink(output_mkv)
 
     cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(video_path)]
-    for ap in existing_audio:
+    for ap, _ in existing_audio:
         cmd.extend(["-i", str(ap)])
     cmd.extend(["-map", "0:v:0"])
     for i in range(len(existing_audio)):
@@ -123,6 +130,17 @@ def mux_to_mkv(
     cmd.extend(["-c:v", "copy"])
     if existing_audio:
         cmd.extend(["-c:a", "flac"])
+    if len(existing_audio) == 4:
+        for i, (_, metadata) in enumerate(existing_audio):
+            if not metadata:
+                continue
+            lang, title = metadata
+            cmd.extend([
+                f"-metadata:s:a:{i}",
+                f"language={lang}",
+                f"-metadata:s:a:{i}",
+                f"title={title}",
+            ])
     cmd.append(str(output_mkv))
 
     try:
