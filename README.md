@@ -67,6 +67,7 @@ python UsmDiviner.py input.usm --mux-mkv --ffmpeg "D:/tools/ffmpeg/bin/ffmpeg.ex
 | `--keep-intermediate-audio` | 音频解码成功后保留 `.hca/.adx` 和 `.hcakey` 文件 |
 | `--no-adx-audiomask` | 不对 ADX 应用 AudioMask，默认结果为杂音时可尝试使用 |
 | `--mux-mkv` | 使用 ffmpeg 封装为 MKV |
+| `--audio-language-preset <gamename>` | MKV 音轨语言 metadata 预设，默认为 `none`；会根据指定游戏的音轨约定映射 language metadata，当前支持 `gi`；需要配合 `--mux-mkv` 使用 |
 | `--ffmpeg PATH` | 手动指定 ffmpeg 路径 |
 
 ## 输出

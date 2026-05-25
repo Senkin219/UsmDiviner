@@ -33,11 +33,15 @@ from .usm import parse_usm_chunks
 
 logger = logging.getLogger(__name__)
 
-AUDIO_LANGUAGE_METADATA = {
-    0: ("chi", "中文"),
-    1: ("eng", "English"),
-    2: ("jpn", "日本語"),
-    3: ("kor", "한국어"),
+AudioLanguageMapping = dict[int, str]
+
+AUDIO_LANGUAGE_PRESETS: dict[str, AudioLanguageMapping] = {
+    "gi": {
+        0: "chi",
+        1: "eng",
+        2: "jpn",
+        3: "kor",
+    },
 }
 
 
@@ -368,27 +372,41 @@ def _maybe_mux(
 ) -> tuple[dict | None, bool]:
     if not opt.mux_mkv:
         return None, False
-    if not video_path:
-        return {
-            "ok": False,
-            "mkv": None,
-            "log_tail": "video stream not found; MKV not created",
-        }, False
 
     mux_audio_inputs: list[Path] = []
-    mux_audio_metadata: list[tuple[str, str] | None] = []
+    mux_audio_channels: list[int] = []
     for ch, audio_path in sorted(audio_paths.items()):
         dec = decoded.get(ch) or {}
         if dec.get("ok") and dec.get("wav"):
             mux_audio_inputs.append(Path(dec["wav"]))
-            mux_audio_metadata.append(AUDIO_LANGUAGE_METADATA.get(ch))
+            mux_audio_channels.append(ch)
         elif audio_decisions[ch].format == "adx":
             mux_audio_inputs.append(audio_path)
-            mux_audio_metadata.append(AUDIO_LANGUAGE_METADATA.get(ch))
+            mux_audio_channels.append(ch)
+
+    mux_audio_languages, audio_metadata_report = _audio_languages_for_preset(
+        opt.audio_language_preset,
+        mux_audio_channels,
+    )
+
+    if not video_path:
+        report = {
+            "ok": False,
+            "mkv": None,
+            "log_tail": "video stream not found; MKV not created",
+        }
+        _maybe_add_audio_metadata_report(report, audio_metadata_report)
+        return report, False
 
     ffmpeg = find_ffmpeg(opt.ffmpeg)
     if not ffmpeg:
-        return {"ok": False, "mkv": None, "log_tail": "ffmpeg not found"}, False
+        report = {
+            "ok": False,
+            "mkv": None,
+            "log_tail": "ffmpeg not found",
+        }
+        _maybe_add_audio_metadata_report(report, audio_metadata_report)
+        return report, False
 
     mkv_path = out_dir / f"{base}.mkv"
     try:
@@ -397,31 +415,78 @@ def _maybe_mux(
             video_path,
             mux_audio_inputs,
             mkv_path,
-            audio_metadata=mux_audio_metadata,
+            audio_languages=mux_audio_languages,
         )
     except ExternalToolError as exc:
         logger.warning("mkv mux failed for %s: %s", base, exc)
         message = "ffmpeg mux failed; extracted streams were kept"
-        return {
+        report = {
             "ok": False,
             "mkv": None,
             "message": message,
             "log_tail": str(exc),
             "streams_kept": True,
-        }, False
+        }
+        _maybe_add_audio_metadata_report(report, audio_metadata_report)
+        return report, False
 
     if not ok:
         message = _mux_failure_message(video_path, log)
         logger.warning("mkv mux skipped for %s: %s", base, message)
-        return {
+        report = {
             "ok": False,
             "mkv": None,
             "message": message,
             "log_tail": log[-1000:],
             "streams_kept": True,
-        }, False
+        }
+        _maybe_add_audio_metadata_report(report, audio_metadata_report)
+        return report, False
 
-    return {"ok": True, "mkv": str(mkv_path), "log_tail": log[-1000:]}, True
+    audio_metadata_report["applied"] = bool(mux_audio_languages)
+    report = {
+        "ok": True,
+        "mkv": str(mkv_path),
+        "log_tail": log[-1000:],
+    }
+    _maybe_add_audio_metadata_report(report, audio_metadata_report)
+    return report, True
+
+
+def _maybe_add_audio_metadata_report(report: dict, metadata_report: dict) -> None:
+    if metadata_report.get("preset") != "none":
+        report["audio_language_metadata"] = metadata_report
+
+
+def _audio_languages_for_preset(
+    preset: str,
+    channels: list[int],
+) -> tuple[list[str | None] | None, dict]:
+    report = {
+        "preset": preset,
+        "channels": channels,
+        "matched": False,
+        "applied": False,
+    }
+    if preset == "none":
+        report["reason"] = "preset disabled"
+        return None, report
+
+    mapping = AUDIO_LANGUAGE_PRESETS.get(preset)
+    if not mapping:
+        report["reason"] = "unknown preset"
+        return None, report
+
+    expected_channels = sorted(mapping)
+    report["expected_channels"] = expected_channels
+    if channels != expected_channels:
+        report["reason"] = "audio channels do not match preset"
+        return None, report
+
+    languages = [mapping[ch] for ch in channels]
+    report["matched"] = True
+    report["languages"] = languages
+    return languages, report
 
 
 def _mux_failure_message(video_path: Path, log: str) -> str:

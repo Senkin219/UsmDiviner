@@ -61,6 +61,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="mux decrypted video and usable audio into MKV",
     )
     parser.add_argument(
+        "--audio-language-preset",
+        choices=("none", "gi"),
+        metavar="<gamename>",
+        default="none",
+        help=(
+            "audio language metadata preset for MKV muxing; "
+            "requires --mux-mkv and maps tracks by game convention"
+        ),
+    )
+    parser.add_argument(
         "--ffmpeg",
         default=None,
         help="path to ffmpeg for --mux-mkv; auto-detected if omitted",
@@ -79,6 +89,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--extract-only cannot be used with --fast")
     if args.extract_only and args.mux_mkv:
         parser.error("--extract-only cannot be used with --mux-mkv")
+    if not args.mux_mkv and args.audio_language_preset != "none":
+        parser.error("--audio-language-preset requires --mux-mkv")
     return args
 
 
@@ -111,6 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         fast=args.fast,
         manual_key=args.key,
         extract_only=args.extract_only,
+        audio_language_preset=args.audio_language_preset,
     )
 
     Path(args.output).mkdir(parents=True, exist_ok=True)

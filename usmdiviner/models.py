@@ -70,3 +70,4 @@ class ProcessOptions:
     fast: bool
     manual_key: int | None
     extract_only: bool
+    audio_language_preset: str
